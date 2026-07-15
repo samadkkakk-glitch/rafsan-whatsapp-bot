@@ -1,7 +1,8 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const http = require('http');
+const { GoogleGenerativeAI } = require('@google/generative-ai'); // 👈 জেমিনি এপিআই প্যাকেজ
 
-// 🌐 Render এর Port Binding এরর দূর করার জন্য মিনি সার্ভার
+// 🌐 ১. Render এর Port Binding এরর দূর করার জন্য মিনি সার্ভার
 const port = process.env.PORT || 10000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -10,8 +11,12 @@ http.createServer((req, res) => {
     console.log(`Server running on port ${port}`);
 });
 
-// 📞 তোমার নতুন কাতার নাম্বারটি এখানে সেট করা হলো
+// 📞 ২. তোমার কাতারের মোবাইল নাম্বার (যেটা অলরেডি লিঙ্কড)
 const PAIRED_PHONE_NUMBER = '97470639538'; 
+
+// 🔑 ৩. জেমিনি এআই কনফিগারেশন (রেন্ডারের Environment Variable থেকে কি নেবে)
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 const client = new Client({
     authStrategy: new LocalAuth(), 
@@ -30,11 +35,10 @@ const client = new Client({
     }
 });
 
-// 🔑 পেয়ারিং কোড জেনারেট করার ফাংশন (৫ সেকেন্ডের সেফ ডিলে সহ)
+// 🔑 ৪. পেয়ারিং কোড জেনারেট করার ফাংশন (৫ সেকেন্ডের সেফ ডিলে সহ)
 client.on('qr', async (qr) => {
     try {
         console.log('⏳ একটু অপেক্ষা করো, পেয়ারিং কোডের জন্য পেজ রেডি হচ্ছে...');
-        // ৫ সেকেন্ড অপেক্ষা করো যাতে হোয়াটসঅ্যাপ পেজটি ব্যাকএন্ডে পুরোপুরি সেটেল হতে পারে
         await new Promise(resolve => setTimeout(resolve, 5000));
         
         console.log('⏳ এবার পেয়ারিং কোড রিকোয়েস্ট করা হচ্ছে...');
@@ -47,7 +51,7 @@ client.on('qr', async (qr) => {
     }
 });
 
-// 🚫 সেফ মেমোরি সেভার (শুধু ইমেজ আর মিডিয়া ব্লক করবে)
+// 🚫 ৫. সেফ মেমোরি সেভার (শুধু ইমেজ আর মিডিয়া ব্লক করবে, যাতে ক্র্যাশ না হয়)
 client.on('ready', async () => {
     console.log('🤖 WhatsApp Bot successfully ready!');
     
@@ -64,7 +68,7 @@ client.on('ready', async () => {
     }
 });
 
-// 🧹 প্রতি ৩০ মিনিট পর পর জমানো ক্যাশ মেমোরি ক্লিয়ার করার অটো-ক্লিনার
+// 🧹 ৬. প্রতি ৩০ মিনিট পর পর জমানো ক্যাশ মেমোরি ক্লিয়ার করার অটো-ক্লিনার
 setInterval(async () => {
     try {
         console.log("🧹 ৩০ মিনিট হয়ে গেছে! সার্ভারের জমানো ক্যাশ ডেটা ক্লিয়ার করা হচ্ছে...");
@@ -80,10 +84,24 @@ setInterval(async () => {
     }
 }, 30 * 60 * 1000);
 
-// 💬 জেমিনি এআই মেসেজিং পার্ট 
+// 💬 ৭. জেমিনি এআই মেসেজিং পার্ট (আসল রিপ্লাই ইঞ্জিন)
 client.on('message', async (msg) => {
-    if (msg.fromMe) return;
-    // তোমার জেমিনি এআই কোড এখানে থাকবে...
+    if (msg.fromMe) return; // নিজের পাঠানো মেসেজে বট রিপ্লাই দেবে না
+
+    try {
+        console.log(`📩 নতুন মেসেজ এসেছে: ${msg.body}`);
+        
+        // জেমিনি এআই এর কাছ থেকে রেসপন্স জেনারেট করা
+        const result = await model.generateContent(msg.body);
+        const responseText = result.response.text();
+        
+        // হোয়াটসঅ্যাপে অটো-রিপ্লাই পাঠানো
+        await msg.reply(responseText);
+        console.log(`📤 বটের রিপ্লাই পাঠানো হয়েছে!`);
+        
+    } catch (error) {
+        console.error("জেমিনি এআই রিপ্লাই দিতে পারেনি কারণ:", error.message);
+    }
 });
 
 client.initialize();
